@@ -1,0 +1,576 @@
+diff --git a/robots/libero/prompt_bundle.py b/robots/libero/prompt_bundle.py
+index f3c8334..736565e 100644
+--- a/robots/libero/prompt_bundle.py
++++ b/robots/libero/prompt_bundle.py
+@@ -19,6 +19,7 @@ from __future__ import annotations
+ from collections.abc import Mapping
+ 
+ from robots.libero.prompts import explore as explore_parts
++from robots.libero.prompts import knowledge_eval as knowledge_parts
+ from robots.libero.prompts import local_eval as local_eval_parts
+ from robots.libero.prompts import system as system_parts
+ from robots.libero.prompts import user as user_parts
+@@ -29,6 +30,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+     """Assemble the LIBERO system prompt for the selected run mode."""
+     if (variables or {}).get("mode", "eval") == "explore":
+         return explore_parts.system_prompt()
++    if (variables or {}).get("knowledge_profile", "mem-proven") == "proven":
++        return knowledge_parts.system_prompt()
+     if (variables or {}).get("memory_profile", "hf") == "local":
+         return local_eval_parts.system_prompt()
+     return {
+@@ -53,10 +56,13 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+ 
+ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+     """Assemble the LIBERO user prompt tree."""
++    begin = user_parts.BEGIN
++    if (variables or {}).get("knowledge_profile", "mem-proven") == "proven":
++        begin = knowledge_parts.BEGIN_NO_MEMORY
+     return {
+         "CELL": user_parts.CELL,
+         "MODE": user_parts.MODE,
+-        "BEGIN": user_parts.BEGIN,
++        "BEGIN": begin,
+     }
+ 
+ 
+diff --git a/robots/libero/prompts/knowledge_eval.py b/robots/libero/prompts/knowledge_eval.py
+new file mode 100644
+index 0000000..7aed9b1
+--- /dev/null
++++ b/robots/libero/prompts/knowledge_eval.py
+@@ -0,0 +1,140 @@
++# Copyright 2026 The RPent Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     https://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""The ``proven`` knowledge profile of the single-attempt LIBERO prompt.
++
++``mem-proven`` (the default) is the unmodified evaluation prompt.  ``proven``
++follows the paper's zero-shot setting (arXiv 2607.08448, LIBERO-Pro Goal, Table
++5): no retrieval of Task Specific Memory (seed-0 recipe files) or Global Memory
++(the memory library).  The PROVEN LEVERS and the guides stay; what goes is every
++instruction to read memory or seed-0 reference files, and the file tools only
++reach the guides and the run's own output directory (``proven_read_roots``).
++
++Each edit names the exact official fragment it replaces and fails loudly when
++that fragment is missing or ambiguous, so the profile cannot drift silently
++when the official prompt changes.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from robots.libero.prompts import system as base
++from rpent.context.prompt_utils import Numbered, PromptNode
++
++KNOWLEDGE_PROFILES = ("mem-proven", "proven")
++
++#: The official file tools read any path on the machine -- the memory library,
++#: seed-0 references, and other episodes' audits and recipes included.  Under
++#: ``proven`` the toolkit confines them to ``proven_read_roots``.
++GUARDED_READ_TOOLS = ("read_text_file", "list_dir")
++GUIDES_DIR = Path(__file__).resolve().parents[1] / "guides"
++
++
++def proven_read_roots(output_dir: Path | str) -> tuple[Path, ...]:
++    """Directories the ``proven`` file tools may read: guides and this run."""
++    return (GUIDES_DIR, Path(output_dir).resolve())
++
++
++def _replace_once(text: str, old: str, new: str) -> str:
++    if text.count(old) != 1:
++        raise RuntimeError(f"expected exactly one prompt fragment: {old!r}")
++    return text.replace(old, new)
++
++
++def _between(text: str, start: str, end: str) -> tuple[str, str]:
++    """Split ``text`` into what precedes ``start`` and what begins at ``end``."""
++    for marker in (start, end):
++        if text.count(marker) != 1:
++            raise RuntimeError(f"expected exactly one prompt fragment: {marker!r}")
++    head, rest = text.split(start, 1)
++    if end not in rest:
++        raise RuntimeError(f"{end!r} does not follow {start!r}")
++    return head, end + rest.split(end, 1)[1]
++
++
++_MECHANICS = "CRITICAL MECHANICS (cost many wasted attempts before they were nailed):"
++
++# The paper's zero-shot setting: the agent "does not retrieve the target-setting
++# Task Specific Memory or the corresponding Global Memory".  The PROVEN LEVERS are
++# part of the prompt, not of either memory, and stay whole -- per-task seed-0
++# recipes included; only the preamble that sends the planner to the seed-0
++# reference files and the task memory is replaced.
++_, _levers = _between(base.PROVEN_LEVERS, "These are battle-tested", _MECHANICS)
++PROVEN_WITHOUT_EXTERNAL_MEMORY = (
++    "Use the following fixed, planner-visible operating lessons. They do not grant "
++    "access to any external recipe, Task Memory, Global Memory, or prior-run file. "
++    "Re-localize every coordinate from the current scene.\n\n" + _levers
++)
++
++RULES_NO_MEMORY = _replace_once(
++    base.RULES,
++    " and the relevant memory/guides BEFORE your first",
++    " and the relevant guides BEFORE your first",
++)
++RULES_NO_MEMORY = _replace_once(
++    RULES_NO_MEMORY,
++    "from sibling\n   recipes, or by guessing",
++    "from prior runs or by guessing",
++)
++
++LOCALIZATION_NO_MEMORY = _replace_once(
++    base.LOCALIZATION,
++    "ALWAYS apply the manipulation offsets from memory to the PERCEIVED position\n"
++    "(e.g. BOWL: eef_y = plate_y + 0.045). Verify visually in `agentview_high.png`\n"
++    "after moving.",
++    "Plan every manipulation from the PERCEIVED position and verify visually in\n"
++    "`agentview_high.png` after moving.",
++)
++
++# Step 1 reads the memory library and step 3 the seed-0 references; step 2, the
++# guides, stays.
++if not base.WORKFLOW_STEPS[1].startswith("READ THE GUIDES"):
++    raise RuntimeError("expected the guides to be workflow step 2")
++WORKFLOW_NO_MEMORY = base.WORKFLOW_STEPS[1:2] + base.WORKFLOW_STEPS[3:]
++
++BEGIN_NO_MEMORY = (
++    'Read the guides, then call `view_env_state({"step": 0})` and inspect '
++    "`agentview_high.png`. Localize the target, then plan and execute. Do not look "
++    "for memory, recipe, or prior-run files."
++)
++
++
++def system_prompt() -> PromptNode:
++    """Build the fixed-Proven prompt without external memory access."""
++    return {
++        "ROLE AND EVALUATION": base.ROLE_AND_EVALUATION,
++        "FIXED PROVEN LEVERS (NO EXTERNAL MEMORY)": PROVEN_WITHOUT_EXTERNAL_MEMORY,
++        "RUNTIME": base.RUNTIME,
++        "YOUR GOAL": base.GOAL,
++        "RULES (NON-NEGOTIABLE)": RULES_NO_MEMORY,
++        "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
++            LOCALIZATION_NO_MEMORY
++        ),
++        "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
++            base.PERCEPTION_ALGORITHM
++        ),
++        "WORKFLOW": Numbered(WORKFLOW_NO_MEMORY),
++        "KEY HYPERPARAMETERS": base.KEY_HYPERPARAMETERS,
++        "OUTPUT DISCIPLINE": base.OUTPUT_DISCIPLINE,
++    }
++
++
++__all__ = [
++    "BEGIN_NO_MEMORY",
++    "GUARDED_READ_TOOLS",
++    "KNOWLEDGE_PROFILES",
++    "proven_read_roots",
++    "system_prompt",
++]
+diff --git a/robots/libero/robot_spec.py b/robots/libero/robot_spec.py
+index e6eff17..dcebbec 100644
+--- a/robots/libero/robot_spec.py
++++ b/robots/libero/robot_spec.py
+@@ -116,6 +116,7 @@ def get_toolkit(
+     mode: str = "evaluation",
+     attempts_per_session: int = 0,
+     state_output_dir: Path | str | None = None,
++    knowledge_profile: str = "mem-proven",
+ ):
+     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
+     from robots.libero.toolkit import LiberoToolkit
+@@ -126,6 +127,7 @@ def get_toolkit(
+         mode=mode,
+         attempts_per_session=attempts_per_session,
+         state_output_dir=state_output_dir,
++        knowledge_profile=knowledge_profile,
+     )
+ 
+ 
+@@ -192,6 +194,14 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+         "(protocol=http|socket, defaults to http). "
+         "If unset, a local SAM3 server is spawned.",
+     )
++    parser.add_argument(
++        "--knowledge-profile",
++        choices=["mem-proven", "proven"],
++        default="mem-proven",
++        help="mem-proven (default) is the unmodified prompt and tool set. proven "
++        "keeps only the cross-task Proven levers: no memory library, guides, "
++        "seed-0 references, per-task recipes, or file-reading tools.",
++    )
+     parser.add_argument(
+         "--cuda-device",
+         type=int,
+@@ -219,6 +229,14 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
+         raise ValueError("--explore cannot be used with --memory-profile hf")
+     if explore and args.explore_sessions <= 0:
+         raise ValueError("--explore-sessions must be greater than 0")
++    knowledge_profile = getattr(args, "knowledge_profile", "mem-proven")
++    if knowledge_profile == "proven" and (
++        explore or args.memory_dir is not None or requested_profile == "local"
++    ):
++        raise ValueError(
++            "--knowledge-profile proven uses no external memory: it takes no "
++            "--explore, --memory-dir, or --memory-profile local"
++        )
+     memory_profile = requested_profile or ("local" if explore else "hf")
+     if memory_profile == "hf" and args.memory_dir is not None:
+         raise ValueError("--memory-dir requires --memory-profile local or --explore")
+@@ -241,6 +259,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
+         "recipe_tag": recipe_tag,
+         "mode": "explore" if explore else "eval",
+         "memory_profile": memory_profile,
++        "knowledge_profile": knowledge_profile,
+         "memory_dir": str(memory_dir),
+         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
+         # Per-cell inbox: parallel explore runs must not append to a shared file.
+diff --git a/robots/libero/toolkit.py b/robots/libero/toolkit.py
+index 69154c3..0f1b8da 100644
+--- a/robots/libero/toolkit.py
++++ b/robots/libero/toolkit.py
+@@ -49,10 +49,13 @@ class LiberoToolkit(Toolkit):
+         mode: str = "evaluation",
+         attempts_per_session: int = 0,
+         state_output_dir: Path | str | None = None,
++        knowledge_profile: str = "mem-proven",
+     ) -> None:
+         self._state_output_dir = Path(state_output_dir or get_output_dir())
+         state = EnvState(self._state_output_dir)
+         super().__init__(dashboard_events=dashboard_events, state=state)
++        if knowledge_profile == "proven":
++            self._confine_read_tools()
+         if mode not in {"evaluation", "exploration"}:
+             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+         self._mode = mode
+@@ -67,6 +70,30 @@ class LiberoToolkit(Toolkit):
+     # ------------------------------------------------------------------
+     # Registration
+     # ------------------------------------------------------------------
++    def _confine_read_tools(self) -> None:
++        """``proven``: the file tools reach the guides and this run, nothing else."""
++        from robots.libero.prompts import knowledge_eval
++        from rpent.tools import common
++
++        roots = knowledge_eval.proven_read_roots(self._state_output_dir)
++
++        def confined(handler):
++            @readonly
++            def guarded(path: str = "", **kwargs):
++                target = common._resolve(path).resolve() if path else roots[-1]
++                if not any(target == root or root in target.parents for root in roots):
++                    return {
++                        "error": "not readable in this run: only the guides and "
++                        f"this run's output directory are ({target})"
++                    }
++                return handler(str(target), **kwargs)
++
++            return guarded
++
++        for name in knowledge_eval.GUARDED_READ_TOOLS:
++            spec, handler = self._tools[name]
++            self.add_tool(name, spec, confined(handler))
++
+     def _register_libero_tools(self) -> None:
+         # These read-only handlers need the run's EnvState bound in. Every
+         # other spec binds to a primitive-driver method and captures state by
+diff --git a/rpent/cli/dashboard.py b/rpent/cli/dashboard.py
+index b2acf01..d483eb1 100644
+--- a/rpent/cli/dashboard.py
++++ b/rpent/cli/dashboard.py
+@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
+ 
+ from rpent.cli.main import _handoff_message, _serialize_messages
+ from rpent.dashboard.events import RunStartedEvent
+-from rpent.planner.base import build_planner
++from rpent.planner.base import api_planner_options, build_planner
+ from rpent.robots import get_toolkit
+ from rpent.utils.logging import get_logger, init_output_dir
+ from rpent.utils.resources import ensure_resources
+@@ -104,6 +104,7 @@ def run_dashboard_session(
+     if (
+         not getattr(args, "explore", False)
+         and getattr(args, "memory_profile", "hf") == "hf"
++        and getattr(args, "knowledge_profile", "mem-proven") != "proven"
+     ):
+         ensure_resources(robot_spec)
+     state = DashboardState(
+@@ -235,6 +236,9 @@ def _run_dashboard_task(
+                             0,
+                         ),
+                         state_output_dir=state_output_dir,
++                        knowledge_profile=getattr(
++                            task_args, "knowledge_profile", "mem-proven"
++                        ),
+                     )
+                 else:
+                     toolkit = get_toolkit(
+@@ -257,6 +261,7 @@ def _run_dashboard_task(
+                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+                         dashboard_events=state,
+                         no_images=args.no_images,
++                        **api_planner_options(args),
+                     )
+                     result = planner.solve(
+                         system_prompt=system_prompt,
+diff --git a/rpent/cli/main.py b/rpent/cli/main.py
+index 5c208be..e007115 100644
+--- a/rpent/cli/main.py
++++ b/rpent/cli/main.py
+@@ -52,7 +52,11 @@ from rpent.dashboard.events import (
+     NullDashboardEventSink,
+     RunStartedEvent,
+ )
+-from rpent.planner.base import REASONING_EFFORTS, build_planner
++from rpent.planner.base import (
++    REASONING_EFFORTS,
++    api_planner_options,
++    build_planner,
++)
+ from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+ from rpent.utils.logging import get_logger, init_output_dir
+ from rpent.utils.resources import ensure_resources
+@@ -143,6 +147,27 @@ def _build_argparser() -> argparse.ArgumentParser:
+     )
+     ap.add_argument("--max-turns", type=int, default=100)
+     ap.add_argument("--max-tokens", type=int, default=8192)
++    ap.add_argument(
++        "--no-send-back-thinking",
++        dest="send_back_thinking",
++        action="store_false",
++        help="API planner, openai-chat models only: do not resend earlier turns' "
++        "thinking with each request. Default: resend it, as pydantic-ai does.",
++    )
++    for flag, kind in (
++        ("--temperature", float),
++        ("--top-p", float),
++        ("--top-k", int),
++        ("--presence-penalty", float),
++        ("--generation-seed", int),
++    ):
++        ap.add_argument(
++            flag,
++            type=kind,
++            default=None,
++            help="API planner sampling setting. Default: not sent, so the "
++            "endpoint's own default applies.",
++        )
+     ap.add_argument(
+         "--reasoning-effort",
+         choices=REASONING_EFFORTS,
+@@ -278,6 +303,7 @@ def _start_continuation_session(
+         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+         dashboard_events=dashboard_events,
+         no_images=args.no_images,
++        **api_planner_options(args),
+     )
+     system_prompt = prompt_bundle.render(
+         "system",
+@@ -346,7 +372,9 @@ def main() -> int:
+ 
+     # Preserve the original HF-backed evaluation behavior by default.
+     memory_profile = getattr(args, "memory_profile", "hf")
+-    if not getattr(args, "explore", False) and memory_profile == "hf":
++    if getattr(args, "knowledge_profile", "mem-proven") == "proven":
++        logger.info("resources: knowledge profile proven uses no memory resources")
++    elif not getattr(args, "explore", False) and memory_profile == "hf":
+         ensure_resources(robot_spec)
+     else:
+         logger.info("resources: using local %s memory profile", memory_profile)
+@@ -366,6 +394,7 @@ def main() -> int:
+         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+         dashboard_events=dashboard_events,
+         no_images=args.no_images,
++        **api_planner_options(args),
+     )
+     prompt_bundle = robot_spec.prompts
+     prompt_vars = {**prompt_vars, "output_dir": output_dir}
+@@ -406,6 +435,7 @@ def main() -> int:
+     # --- agent loop --------------------------------------------------------
+     t0 = time.time()
+     finish_result, messages, agent_error = None, [], None
++    solved = False
+     stats: dict = {}
+     first_user_msg: str | None = user_msg
+     if await_first_prompt is not None:
+@@ -453,6 +483,7 @@ def main() -> int:
+                         0,
+                     ),
+                     state_output_dir=state_output_dir,
++                    knowledge_profile=getattr(args, "knowledge_profile", "mem-proven"),
+                 )
+             else:
+                 toolkit = get_toolkit(
+@@ -512,6 +543,8 @@ def main() -> int:
+         **task_desc,
+         "model": args.model,
+         "elapsed_s": round(elapsed, 1),
++        "solved": solved,
++        "agent_error": agent_error,
+         "finish": finish_result,
+         "stats": stats,
+         "messages": _serialize_messages(messages),
+diff --git a/rpent/planner/api_loop.py b/rpent/planner/api_loop.py
+index 20ae484..033effe 100644
+--- a/rpent/planner/api_loop.py
++++ b/rpent/planner/api_loop.py
+@@ -88,9 +88,11 @@ class ApiAgentLoop:
+         *,
+         dashboard_events: DashboardEventSink,
+         timeout_s: int | None = None,
++        sampling: dict[str, float | int] | None = None,
+     ):
+         """Store the pydantic-ai model and the output-token cap."""
+         self._model = model
++        self._sampling = dict(sampling or {})
+         self._max_tokens = max_tokens
+         self._dashboard_events = dashboard_events
+         self._no_images = no_images
+@@ -368,7 +370,9 @@ class ApiAgentLoop:
+             self._model,
+             instructions=system_prompt or None,
+             tools=_build_tools(toolkit, no_images=self._no_images),
+-            model_settings=_build_model_settings(self._model, self._max_tokens),
++            model_settings=_build_model_settings(
++                self._model, self._max_tokens, self._sampling
++            ),
+             capabilities=[
+                 Thinking(effort=thinking_effort),
+                 ProcessHistory(processor=_prune_history_images),
+@@ -624,9 +628,28 @@ class _ApiDashboardSession:
+                     await self._control.tool_completed(self)
+ 
+ 
+-def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
++def _build_model_settings(
++    model: Model, max_tokens: int, sampling: dict[str, float | int] | None = None
++) -> ModelSettings:
+     """Build model settings, enabling prompt caching for Anthropic models."""
+     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
++    from pydantic_ai.models.openai import OpenAIChatModel
++
++    # Only what the caller set is sent; the endpoint's defaults cover the rest.
++    sampling = dict(sampling or {})
++    extra: dict[str, Any] = {
++        name: sampling[name]
++        for name in ("temperature", "top_p", "presence_penalty")
++        if name in sampling
++    }
++    if "generation_seed" in sampling:
++        extra["seed"] = sampling["generation_seed"]
++    if "top_k" in sampling:
++        # Chat Completions has no top_k field; vLLM takes it in the body.
++        if isinstance(model, OpenAIChatModel):
++            extra["extra_body"] = {"top_k": sampling["top_k"]}
++        else:
++            extra["top_k"] = sampling["top_k"]
+ 
+     if isinstance(model, AnthropicModel):
+         return AnthropicModelSettings(
+@@ -634,8 +657,9 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
+             anthropic_cache_instructions=True,
+             anthropic_cache_tool_definitions=True,
+             anthropic_cache_messages=True,
++            **extra,
+         )
+-    return ModelSettings(max_tokens=max_tokens)
++    return ModelSettings(max_tokens=max_tokens, **extra)
+ 
+ 
+ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
+diff --git a/rpent/planner/base.py b/rpent/planner/base.py
+index 6033cd5..df85ef9 100644
+--- a/rpent/planner/base.py
++++ b/rpent/planner/base.py
+@@ -19,7 +19,7 @@ from __future__ import annotations
+ import os
+ import queue
+ from pathlib import Path
+-from typing import Protocol
++from typing import Any, Protocol
+ 
+ from rpent.dashboard.events import DashboardEventSink
+ from rpent.dashboard.interaction import DashboardInteractionPort
+@@ -114,6 +114,22 @@ class Planner(Protocol):
+ # ---------------------------------------------------------------------------
+ 
+ 
++SAMPLING_OPTIONS = ("temperature", "top_p", "top_k", "presence_penalty", "generation_seed")
++
++
++def api_planner_options(args: Any) -> dict[str, Any]:
++    """The API planner's optional CLI settings as ``build_planner`` keywords."""
++    sampling = {
++        name: getattr(args, name)
++        for name in SAMPLING_OPTIONS
++        if getattr(args, name, None) is not None
++    }
++    return {
++        "send_back_thinking": getattr(args, "send_back_thinking", True),
++        "sampling": sampling or None,
++    }
++
++
+ def build_planner(
+     planner_type: str,
+     *,
+@@ -128,6 +144,8 @@ def build_planner(
+     claude_code_max_budget_usd: float | None = None,
+     dashboard_events: DashboardEventSink,
+     no_images: bool = False,
++    send_back_thinking: bool = True,
++    sampling: dict[str, float | int] | None = None,
+ ):
+     """Build a planner for the given backend, resolving credentials from env vars."""
+     # Imports are deferred to avoid a circular import: api_loop / claude_code /
+@@ -165,7 +183,28 @@ def build_planner(
+                 kwargs["base_url"] = base_url
+             return provider_cls(**kwargs)
+ 
+-        api_model = infer_model(model, provider_factory=_provider_factory)
++        if send_back_thinking:
++            api_model = infer_model(model, provider_factory=_provider_factory)
++        else:
++            # pydantic-ai resends every earlier ThinkingPart as ``reasoning``.
++            # ``infer_model`` takes no profile and ``Model.profile`` is cached at
++            # construction, so the Chat Completions model is built here with the
++            # same provider and the one profile switch that stops the resend.
++            from pydantic_ai.models import parse_model_id
++            from pydantic_ai.models.openai import OpenAIChatModel
++            from pydantic_ai.profiles.openai import OpenAIModelProfile
++
++            provider_name, model_name = parse_model_id(model)
++            if provider_name != "openai-chat":
++                raise ValueError(
++                    "--no-send-back-thinking is only implemented for "
++                    f"'openai-chat:' models, got {model!r}"
++                )
++            api_model = OpenAIChatModel(
++                model_name,
++                provider=_provider_factory(provider_name),
++                profile=OpenAIModelProfile(openai_chat_send_back_thinking_parts=False),
++            )
+         api_timeout_s = planner_timeout_s
+         if api_timeout_s is None:
+             api_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))
+@@ -176,6 +215,7 @@ def build_planner(
+             dashboard_events=dashboard_events,
+             no_images=no_images,
+             timeout_s=api_timeout_s,
++            sampling=sampling,
+         )
+     if planner_type == "claude_code":
+         from rpent.planner.claude_code import ClaudeCodePlanner

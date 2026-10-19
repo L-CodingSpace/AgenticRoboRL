@@ -1,0 +1,51 @@
+# CaP-X (https://github.com/capgym/cap-x) on its LIBERO-PRO tasks: a harness that calls no VLA -- the model writes Python
+# that calls the harness's APIs. Settings of the paper's CaP-X runs: ground-truth object state ("privileged" API,
+# env_configs/libero/franka_libero_goal_1.yaml), multi-turn, model outputs up to 32,768 tokens, CaP-X's own per-request
+# and per-trial limits raised at run time by run_episode.py (1,800 s / 2,400 s). Evaluation goes through the recording
+# proxy like a rollout (plain temperature-1 sampling).
+#
+# Needs, in the environment of the controller:
+#   CAPX_DIR      a cap-x checkout with its LIBERO environment installed (its docs/libero-tasks.md)
+#   CAPX_PYTHON   the python of that environment (.venv-libero/bin/python)
+#   PLANNER_ENV   an environment with vLLM 0.28
+#   TRAIN_ENV     the environment of rl/train_rl.py
+#
+# One controller per GPU, e.g. for GPU 0:
+#   python rl/local_ctl.py eval  --config harnesses/capx_libero/harness.yaml --run-dir runs/capx/g0 --weights <ckpt> --tag v000 \
+#          --init-key val_init_ids --shard 0/8 --var gpu=0 --var model_port=18110 --var proxy_port=18210
+#   python rl/local_ctl.py train --config harnesses/capx_libero/harness.yaml --run-dir runs/capx --weights <ckpt> \
+#          --rounds 15 --groups 64 --pool-report runs/capx/eval/v000/report.json --var gpu=0 --var model_port=18110 --var proxy_port=18210
+name: capx_libero
+adapter: result_json
+tasks: tasks.jsonl                    # CaP-X's suites libero_{object,goal,spatial}_{swap,task}, 10 tasks each
+                                      # init id = CaP-X trial number: evaluate on 1-10, train on 11-44, validate on 45-49
+group_size: 6
+episodes_parallel: 5
+proxy_port: "{proxy_port}"
+model:
+  url: http://127.0.0.1:{model_port}
+  serve_cmd: >-
+    CUDA_VISIBLE_DEVICES={gpu} $PLANNER_ENV/bin/vllm serve {weights} --served-model-name {weights}
+    --host 127.0.0.1 --port {model_port} --tensor-parallel-size 1 --max-model-len 65536 --max-num-seqs 5
+    --gpu-memory-utilization 0.6 --limit-mm-per-prompt.video 0 --limit-mm-per-prompt.image 32
+    --enable-prefix-caching --generation-config auto --reasoning-parser qwen3
+  ready_timeout_s: 1800
+episode:
+  timeout_s: 2700                     # only catches a hung process; run_episode.py's trial limit is 2,400 s
+  on_timeout: failure
+  env: {MUJOCO_GL: egl, PYOPENGL_PLATFORM: egl}
+  cmd: >-
+    CUDA_VISIBLE_DEVICES={gpu} MUJOCO_EGL_DEVICE_ID={gpu} $CAPX_PYTHON {config_dir}/run_episode.py --capx-dir $CAPX_DIR
+    --base-config env_configs/libero/franka_libero_goal_1.yaml
+    --suite {suite} --task {task} --trial {init_id}
+    --model-url {model_url} --model {weights} --out {episode_dir}
+    --max-tokens 32768 --request-timeout-s 1800 --trial-timeout-s 2400
+build:
+  turns_per_episode: 16
+train:
+  cwd: ../..
+  # --ce_chunk 2048 on 141 GB GPUs, 512 on 80 GB GPUs
+  cmd: >-
+    $TRAIN_ENV/bin/torchrun --nproc_per_node 8 rl/train_rl.py --samples {samples} --model_path {weights0} --ref_files {weights0}
+    {resume_arg} --output_dir {new_weights} --lr 1e-6 --global_batch 128 --gpus_per_node 8 --plan balanced --mid_every 2
+    --ce_chunk 2048

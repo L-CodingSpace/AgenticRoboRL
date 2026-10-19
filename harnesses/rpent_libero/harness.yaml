@@ -1,0 +1,80 @@
+# RPent (the VLA-calling harness of Harness VLA) on LIBERO-PRO, with the settings of the paper's runs.
+#
+# Needs, in the environment of the controller (see Prerequisites in README.md):
+#   RPENT_DIR        an RPent checkout at f70d720 with patches/rpent/rpent_f70d720.patch applied
+#   RPENT_ENV        RPent's Python environment (with LIBERO-PRO)
+#   PLANNER_ENV      an environment with vLLM 0.28
+#   TRAIN_ENV        the environment of rl/train_rl.py
+#   PI05_CHECKPOINT  the frozen VLA (RLinf-Pi05-LIBERO-130-fullshot-SFT);  SAM3_CHECKPOINT  sam3.pt
+#
+# One controller per GPU; give each its own GPU and ports, e.g. for GPU 3:
+#   --var gpu=3 --var model_port=18103 --var proxy_port=18203 --var vla_port=18303 --var sam3_port=18403
+#
+#   python rl/local_ctl.py eval  --config harnesses/rpent_libero/harness.yaml --run-dir runs/x/g0 --weights <ckpt dir> --tag v000 \
+#          --init-key val_init_ids --shard 0/8 --var gpu=0 --var model_port=18100 --var proxy_port=18200 --var vla_port=18300 --var sam3_port=18400
+#   python rl/local_ctl.py train --config harnesses/rpent_libero/harness.yaml --run-dir runs/x --weights <ckpt dir> \
+#          --rounds 6 --groups 64 --pool-report runs/x/eval/v000/report.json \
+#          --var gpu=0 --var model_port=18100 --var proxy_port=18200 --var vla_port=18300 --var sam3_port=18400
+name: rpent_libero
+adapter: rpent_libero                 # reads RPent's own transcript; no result.json needed
+tasks: tasks.jsonl                    # 8 suites x 10 tasks; train on inits 11-44, evaluate on 1-10, validate on 45-49
+group_size: 6
+episodes_parallel: 4                  # episodes sharing one GPU (the vLLM server below serves 4 at a time)
+proxy_port: "{proxy_port}"
+model:
+  url: http://127.0.0.1:{model_port}
+  serve_cmd: >-
+    CUDA_VISIBLE_DEVICES={gpu} $PLANNER_ENV/bin/vllm serve {weights} --served-model-name {weights}
+    --host 127.0.0.1 --port {model_port} --tensor-parallel-size 1 --max-model-len 262144 --max-num-seqs 4
+    --gpu-memory-utilization 0.62 --limit-mm-per-prompt.video 0 --limit-mm-per-prompt.image 128
+    --enable-prefix-caching --enable-auto-tool-choice --generation-config auto
+    --tool-call-parser qwen3_coder --reasoning-parser qwen3
+  ready_timeout_s: 1800
+services:
+  - name: pi05
+    cmd: >-
+      PI05_CHECKPOINT_PATH=$PI05_CHECKPOINT $RPENT_ENV/bin/python -m rpent.robots.components.pi05_vla_server
+      --transport http --host 127.0.0.1 --port {vla_port} --cuda-device {gpu}
+    ready_timeout_s: 900
+  - name: sam3
+    cmd: >-
+      SAM3_CHECKPOINT_PATH=$SAM3_CHECKPOINT $RPENT_ENV/bin/python -m rpent.robots.components.sam3_server
+      --transport http --host 127.0.0.1 --port {sam3_port} --cuda-device {gpu}
+    ready_timeout_s: 900
+episode:
+  # the layout the rpent_libero adapter expects: <run id>/<suite>/task_XX/seed_XXX/attempt_KK
+  dir: "local/{suite}/task_{task:02d}/seed_{init_id:03d}/attempt_{attempt:02d}"
+  cwd: $RPENT_DIR
+  timeout_s: 7500                     # RPent's own limit is --planner-timeout-s 7200; this one only catches a hung process
+  env: {MUJOCO_GL: egl, PYOPENGL_PLATFORM: egl, OPENAI_API_KEY: EMPTY}
+  # training rollouts: the recording proxy replaces the sampling settings by plain temperature-1 sampling
+  # (rl/rl_sampling.py); a different generation seed per round and attempt
+  cmd: >-
+    $RPENT_ENV/bin/python -m rpent.cli.main --robot libero --libero-type pro
+    --suite {suite} --task {task} --seed {init_id} --output-dir {episode_dir} --cuda-device {gpu}
+    --base-url {model_url}
+    --vla-endpoint http://127.0.0.1:{vla_port} --sam3-endpoint http://127.0.0.1:{sam3_port}
+    --planner api --model openai-chat:{weights} --knowledge-profile proven --no-send-back-thinking --reasoning-effort low
+    --max-turns 100 --max-tokens 32768 --planner-timeout-s 7200
+    --temperature 1.0 --top-p 1.0 --presence-penalty 0.0
+    --generation-seed $((({round} + 1) * 100000 + {attempt}))
+eval:
+  # the evaluation protocol of the paper (and of Harness VLA): no proxy, the planner's own sampling settings
+  direct: true
+  cmd: >-
+    $RPENT_ENV/bin/python -m rpent.cli.main --robot libero --libero-type pro
+    --suite {suite} --task {task} --seed {init_id} --output-dir {episode_dir} --cuda-device {gpu}
+    --base-url {model_url}
+    --vla-endpoint http://127.0.0.1:{vla_port} --sam3-endpoint http://127.0.0.1:{sam3_port}
+    --planner api --model openai-chat:{weights} --knowledge-profile proven --no-send-back-thinking --reasoning-effort low
+    --max-turns 100 --max-tokens 32768 --planner-timeout-s 7200
+    --temperature 1.0 --top-p 0.95 --top-k 20 --presence-penalty 1.5 --generation-seed 3407
+build:
+  turns_per_episode: 16
+  # the length limits and the post-success rule were used from the round that produced v006 on
+  args: ["--max-output-tokens", "20000", "--max-total-tokens", "160000", "--drop-post-success"]
+train:
+  cwd: ../..
+  cmd: >-
+    $TRAIN_ENV/bin/torchrun --nproc_per_node 8 rl/train_rl.py --samples {samples} --model_path {weights0} --ref_files {weights0}
+    {resume_arg} --output_dir {new_weights} --lr 1e-6 --global_batch 128 --gpus_per_node 8

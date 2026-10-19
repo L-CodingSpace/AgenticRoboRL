@@ -1,0 +1,20 @@
+# The minimal harness, runnable on a laptop without a GPU (fake model server, fake trainer):
+#   python rl/local_ctl.py train --config harnesses/minimal/harness.yaml --run-dir /tmp/minimal_run --weights w0 --rounds 2 --groups 6
+name: minimal
+adapter: result_json
+tasks: tasks.jsonl
+group_size: 6
+episodes_parallel: 4
+proxy_port: 18290
+model:
+  url: http://127.0.0.1:18291
+  serve_cmd: "{python} {config_dir}/fake_model_server.py --port 18291 --weights {weights}"
+  ready_timeout_s: 60
+episode:
+  cmd: "{python} {config_dir}/minimal_agent.py --task {task_id} --init {init_id} --attempt {attempt} --model-url {model_url} --out {episode_dir}"
+  timeout_s: 120
+build:
+  turns_per_episode: 16
+  args: ["--drop-post-success"]
+train:
+  cmd: "{python} {config_dir}/fake_train.py --samples {samples} --weights {weights} --out {new_weights}"

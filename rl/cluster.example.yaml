@@ -1,0 +1,23 @@
+# Machines for rl/multi_node_ctl.py. Every path below must be the same on every machine (a shared file system).
+hosts:                                # machines that run episodes
+  - gpu-node-01
+  - gpu-node-02
+  - {name: gpu-node-03, gpus: [0, 1, 2, 3]}   # a host with other GPUs than the default list
+gpus: [0, 1, 2, 3, 4, 5, 6, 7]        # one episode worker per GPU
+exec: "ssh -o BatchMode=yes {host}"   # how to run a command on a host ("" = on this machine)
+code_dir: /shared/AgenticRoboRL       # this repository, as the hosts see it
+python: /shared/envs/rl/bin/python    # python on the hosts with pyyaml, fastapi, uvicorn, httpx
+setup_cmd: ""                         # optional: e.g. "bash /shared/setup_node.sh" (install environments on a fresh machine)
+port_vars:                            # per worker: <base> + <gpu>; must match the {names} used in harness.yaml
+  model_port: 18100
+  proxy_port: 18200
+  vla_port: 18300                     # RPent only
+  sam3_port: 18400                    # RPent only
+vars: {}                              # more template variables for every worker and for train.cmd
+train_host: gpu-node-01               # where train.cmd runs (it starts torchrun itself)
+lease_s: 1200                         # a silent worker's episode is handed out again after this long
+max_leases: 3                         # an episode handed out this often without a result counts as invalid
+poll_s: 60
+worker_restarts: 3                    # per host and phase
+train_restarts: 2
+train_silence_s: 3600                 # a training whose log has not grown for this long counts as failed
