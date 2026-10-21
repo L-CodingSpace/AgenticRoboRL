@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="AgenticRoboRL post-trains the planner of an agentic robotics system with supervised fine-tuning and multi-turn reinforcement learning, keeping the harness and the VLA fixed. A 9B planner goes from 18.1% to 71.0% on LIBERO-PRO without external memory.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="AgenticRoboRL: Bringing Coding-Agent Post-Training to Agentic Robotics">
+<meta property="og:description" content="Post-training the planner of an agentic robotics system. A 9B planner goes from 18.1% to 71.0% on LIBERO-PRO without external memory, and from 2.7% to 28.5% with the CaP-X harness.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231C2A45'/%3E%3Crect x='10' y='10' width='12' height='12' transform='rotate(45 16 16)' fill='%23F76707'/%3E%3C/svg%3E">
+<title>AgenticRoboRL</title>
+<script>try { if (/[?&]bp\b/.test(location.search)) document.documentElement.classList.add("bp"); } catch (e) {}</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<!--
+  Page layout and base styles adapted from the RV-ICL project page
+  (https://github.com/BWR-hhh/rvicl), licensed under the Apache License 2.0.
+  See LICENSE-RV-ICL. Changes: colour palette, sections, content, and the comparison player.
+-->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #F3F5F9; --surface: #FFFFFF; --sunk: #E9EDF4; --plate: #FFFFFF;
+  --ink: #101828; --ink-2: #475069; --ink-3: #6E7891; --line: #D8DEE9;
+  --shadow: 0 1px 2px rgba(16,24,40,.05), 0 14px 34px -18px rgba(16,24,40,.22);
+  --gutter: clamp(16px, 4vw, 40px); --gap: clamp(56px, 8vw, 96px);
+  --look: #E8590C; --look-ink: #B4440A; --look-wash: #FFEADB;
+  --coarse: #1C7ED6; --coarse-ink: #1864AB; --coarse-wash: #E1EEFB;
+  --ok: #2B9A47; --ok-wash: #DDF3E3; --rise: #E03131; --bad: #C92A2A; --bad-wash: #FBE3E3; --deemph: #8A94AA;
+  --navy: #1C2A45;
+  --stage: #111A2E; --stage-2: #1A2540; --stage-ink: #EEF2F9; --stage-ink-2: #A6B1C8; --stage-line: #2C3858;
+  --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B101B; --surface: #141B2B; --sunk: #0F1524; --plate: #EEF0F4;
+    --ink: #EDF1F8; --ink-2: #B3BDD1; --ink-3: #8794AE; --line: #262F46;
+    --look: #F76707; --look-ink: #FFA36B; --look-wash: #3A2112;
+    --coarse: #3B8FE0; --coarse-ink: #8BBDF0; --coarse-wash: #14294A;
+    --ok: #40C06A; --ok-wash: #12301E; --rise: #FF6B6B; --bad: #F06565; --bad-wash: #3A1717; --deemph: #7A88A4;
+    --navy: #C9D4EA;
+    --stage: #131A2B; --stage-2: #1C2540; --stage-line: #2F3B5C;
+    --shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 20px 44px -24px rgba(0,0,0,.75); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B101B; --surface: #141B2B; --sunk: #0F1524; --plate: #EEF0F4;
+  --ink: #EDF1F8; --ink-2: #B3BDD1; --ink-3: #8794AE; --line: #262F46;
+  --look: #F76707; --look-ink: #FFA36B; --look-wash: #3A2112;
+  --coarse: #3B8FE0; --coarse-ink: #8BBDF0; --coarse-wash: #14294A;
+  --ok: #40C06A; --ok-wash: #12301E; --rise: #FF6B6B; --bad: #F06565; --bad-wash: #3A1717; --deemph: #7A88A4;
+  --navy: #C9D4EA;
+  --stage: #131A2B; --stage-2: #1C2540; --stage-line: #2F3B5C;
+  --shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 20px 44px -24px rgba(0,0,0,.75); color-scheme: dark;
+}
+/* black pink variant, on when the address ends with ?bp */
+:root.bp {
+  color-scheme: dark;
+  --bg: #0B0B0C; --surface: #161618; --sunk: #202024; --plate: #FFFFFF;
+  --ink: #F6F3F5; --ink-2: #CFC6CC; --ink-3: #958A91; --line: #2C2A2E;
+  --look: #FF4F9A; --look-ink: #FF8DBE; --look-wash: #3A1426;
+  --coarse: #F7A8C8; --coarse-ink: #F7A8C8; --coarse-wash: #2E1A24;
+  --ok: #FF4F9A; --ok-wash: #3A1426; --bad: #8E8A90; --bad-wash: #232225; --deemph: #6D6870;
+  --rise: #FF4F9A; --navy: #F6F3F5;
+  --stage: #000000; --stage-2: #141416; --stage-ink: #F6F3F5; --stage-ink-2: #B9AEB5; --stage-line: #2E2A2E;
+  --shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 20px 44px -24px rgba(0,0,0,.8);
+}
+:root.bp .res.bad { color: #0B0B0C; }
+:root.bp .w-a, :root.bp .w-l { color: #FF4F9A; }
+:root.bp .w-g { color: #F6F3F5; }
+:root.bp .w-r { color: #F7A8C8; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.55; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+.page { max-width: 1120px; margin-inline: auto; padding-inline: var(--gutter); padding-block: 0 72px; display: flex; flex-direction: column; gap: var(--gap); }
+.sec { scroll-margin-top: 76px; display: flex; flex-direction: column; gap: 28px; }
+a { color: var(--coarse-ink); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--look); outline-offset: 2px; border-radius: 4px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+p { margin: 0; }
+code, .mono { font-family: var(--mono); font-size: 0.82em; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.sec > header { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 10px clamp(24px, 4vw, 56px); align-items: start; }
+.sec > header .eyebrow { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+.sec > header .eyebrow::before { content: ""; width: 7px; height: 7px; background: var(--ink-3); transform: rotate(45deg); flex: none; }
+.sec > header h2 { grid-column: 1; }
+.sec > header > p { grid-column: 2; color: var(--ink); }
+.sec > header h2:last-child { grid-column: 1 / -1; }
+.sec h2 { font-stretch: 104%; font-weight: 700; font-size: clamp(1.2rem, 2vw, 1.5rem); line-height: 1.25; }
+
+/* top bar */
+.top { position: sticky; top: 0; z-index: 6; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-inline: calc(-1 * var(--gutter)); padding: 12px var(--gutter) 18px; background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.top::after { content: ""; position: absolute; left: var(--gutter); right: var(--gutter); bottom: 0; height: 7px; pointer-events: none; background: linear-gradient(var(--line), var(--line)) left bottom / 100% 1px no-repeat, repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 60px) left bottom / 100% 7px no-repeat, repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 12px) left bottom / 100% 4px no-repeat; }
+.mark { font-family: var(--mono); font-weight: 700; font-size: 15px; white-space: nowrap; flex: none; }
+.top nav { display: flex; gap: 2px; font-size: 14px; min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+.top nav a { color: var(--ink-2); text-decoration: none; padding: 5px 11px; border-radius: 999px; }
+.top nav a:hover { color: var(--ink); }
+.top nav a.on { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+
+/* logo word */
+.w-a { color: #F76707; } .w-g { color: var(--navy); } .w-r { color: #1C7ED6; } .w-l { color: #37B24D; }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: clamp(26px, 4vw, 44px) clamp(24px, 5vw, 64px); align-items: start; margin-top: calc(clamp(22px, 3.5vw, 44px) - var(--gap)); }
+.hero-head { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.hero h1 { display: flex; flex-direction: column; gap: 0.2em; line-height: 1.02; }
+.hero h1 .t1 { font-family: var(--mono); font-weight: 700; font-size: clamp(2rem, 6vw, 4rem); letter-spacing: -0.03em; }
+.hero h1 .t1 { display: flex; align-items: center; gap: 0.2em; }
+.hero h1 .logo { height: 1.55em; width: auto; flex: none; }
+.hero h1 .t2 { font-family: var(--display); font-size: clamp(1.15rem, 2.6vw, 1.9rem); font-weight: 650; font-stretch: 100%; letter-spacing: -0.01em; color: var(--ink-2); }
+.authors { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.authors p { display: flex; flex-wrap: wrap; }
+.names { gap: 4px 26px; font-family: var(--display); font-weight: 600; font-size: clamp(1rem, 1.7vw, 1.15rem); color: var(--ink); }
+.affil { gap: 2px 22px; font-size: 14.5px; color: var(--ink-2); }
+.authors sup { font-size: 0.68em; line-height: 0; margin-inline: 1px; color: var(--ink-3); }
+.links { gap: 10px; margin-top: 8px; }
+.links a, .links span { font: 600 14.5px var(--body); color: var(--ink); text-decoration: none; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; }
+.links a:hover { border-color: var(--ink-3); }
+.links span.soon { color: var(--ink-3); }
+.hero .lede { max-width: 62ch; min-width: 0; font-size: clamp(1.05rem, 1.6vw, 1.2rem); }
+.facts { display: flex; flex-direction: column; gap: 6px 22px; min-width: 0; font-size: 15px; color: var(--ink-2); padding: 0; margin: 0; list-style: none; }
+.facts li { display: flex; gap: 8px; align-items: center; }
+.facts li::before { content: ""; width: 7px; height: 7px; background: var(--ink-3); transform: rotate(45deg); flex: none; }
+.glance { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+.glance div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 22px 20px 16px 0; }
+.glance div + div { border-left: 1px solid var(--line); padding-left: 20px; }
+.glance dt { font: 700 clamp(1.7rem, 3.1vw, 2.25rem)/1 var(--body); letter-spacing: -0.02em; }
+.glance dt .from { color: var(--ink-3); font-weight: 600; font-size: 0.62em; }
+.glance dt .arr { position: relative; display: inline-block; width: 64px; height: 1em; vertical-align: middle; margin: 0 10px 0 8px; font-size: 16px; }
+.glance dt .shaft { position: absolute; left: 0; right: 8px; top: 50%; height: 2.5px; margin-top: -1px; background: var(--rise); border-radius: 2px; }
+.glance dt .shaft::after { content: ""; position: absolute; right: -8px; top: -5px; border-left: 10px solid var(--rise); border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.glance dt .gain { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 2px; font-size: 13.5px; font-weight: 700; color: var(--rise); white-space: nowrap; letter-spacing: 0; }
+.glance dd { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.4; }
+.glance dd b { color: var(--ink); font-weight: 600; }
+.figure { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.figure .plate { background: var(--plate); border: 1px solid var(--line); border-radius: 14px; padding: clamp(8px, 1.6vw, 18px); overflow-x: auto; }
+.figure img { display: block; width: 100%; min-width: 560px; height: auto; }
+.figure figcaption { color: var(--ink-3); font-size: 14.5px; }
+.sec-note { color: var(--ink-3); font-size: 14.5px; margin-top: -12px; }
+.hero .figure { grid-column: 1 / -1; }
+
+/* why */
+.why { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.why > div { padding: 20px 20px 4px 0; display: flex; flex-direction: column; gap: 6px; }
+.why > div + div { border-left: 1px solid var(--line); padding-left: 20px; }
+.why h3 { font-stretch: 112%; font-weight: 700; font-size: 1.05rem; }
+.why p { color: var(--ink-2); font-size: 16px; }
+.why .big { font: 700 1.6rem/1 var(--body); letter-spacing: -0.02em; color: var(--ink); margin-bottom: 4px; }
+
+/* steps */
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.steps.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow); }
+.step h3 { font-stretch: 110%; font-weight: 700; font-size: 1.1rem; }
+.step p { color: var(--ink-2); font-size: 16px; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.step code { font-size: 12.5px; background: var(--sunk); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+.chip { display: inline-block; align-self: flex-start; font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; line-height: 1.5; color: #fff; }
+.chip.sft { background: var(--coarse); } .chip.rl { background: var(--look); } .chip.ad { background: var(--ok); } .chip.nv { background: #5B6782; }
+
+/* comparison stage */
+.stage { background: radial-gradient(900px 380px at 10% -10%, color-mix(in srgb, var(--coarse) 22%, transparent), transparent 70%), var(--stage); color: var(--stage-ink); border-radius: 20px; padding: clamp(14px, 2.4vw, 26px); display: flex; flex-direction: column; gap: 16px; box-shadow: var(--shadow); }
+.stage-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 20px; align-items: center; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { font: 600 14px var(--body); border-radius: 999px; border: 1px solid var(--stage-line); background: var(--stage-2); color: var(--stage-ink-2); padding: 6px 14px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--look); border-color: var(--look); color: #fff; }
+.instr { font-size: 15.5px; color: var(--stage-ink-2); }
+.instr q { color: var(--stage-ink); font-style: italic; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.mon { background: var(--stage-2); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; }
+.mon-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--stage-ink-2); }
+.mon-head b { color: var(--stage-ink); font-weight: 600; }
+.res { font-family: var(--mono); font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+.res.ok { background: var(--ok); color: #fff; } .res.bad { background: var(--bad); color: #fff; }
+.mon video { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 8px; background: #05070C; }
+.meter { display: grid; grid-template-columns: 92px minmax(0, 1fr) 30px; gap: 4px 8px; align-items: center; font-family: var(--mono); font-size: 11.5px; color: var(--stage-ink-2); }
+.meter .bar { height: 8px; background: var(--stage); border-radius: 3px; overflow: hidden; }
+.meter .bar i { display: block; height: 100%; border-radius: 3px; background: #6E7C9C; }
+.meter .bar i.bp { background: var(--coarse); }
+.meter .bar i.mv { background: var(--look); }
+.meter span:last-child { text-align: right; color: var(--stage-ink); }
+.say { margin: 0; padding-left: 10px; border-left: 2px solid var(--stage-line); color: var(--stage-ink-2); font-size: 14px; line-height: 1.45; }
+.say.claim { border-left-color: var(--bad); }
+.say.good { border-left-color: var(--ok); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 14px; color: var(--stage-ink-2); }
+.btn { font: 600 14px var(--body); border-radius: 8px; border: 1px solid var(--stage-line); background: var(--stage-2); color: var(--stage-ink); padding: 7px 14px; cursor: pointer; }
+.btn.primary { background: var(--look); border-color: var(--look); color: #fff; }
+.btn:hover { filter: brightness(1.08); }
+.stage-note { font-size: 13.5px; color: var(--stage-ink-2); }
+.stage-title { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--stage-ink-2); }
+#eps { display: flex; flex-direction: column; gap: 28px; }
+.ep-block { display: flex; flex-direction: column; gap: 12px; }
+.ep-block + .ep-block { border-top: 1px solid var(--stage-line); padding-top: 24px; }
+.ep-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
+.ep-title { font-family: var(--display); font-stretch: 104%; font-weight: 650; font-size: clamp(1.02rem, 1.8vw, 1.2rem); color: var(--stage-ink); }
+.mon-head b { white-space: nowrap; }
+
+/* results */
+.ladder { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr); gap: 12px; align-items: stretch; }
+.rung { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+.rung.us { border-color: var(--look); background: var(--look-wash); }
+.rung .v { font-weight: 700; font-size: clamp(1.9rem, 4.6vw, 3rem); line-height: 1; letter-spacing: -0.02em; }
+.rung .n { font-weight: 600; }
+.rung .d { color: var(--ink-2); font-size: 14.5px; }
+.arrow { align-self: center; color: var(--ink-3); font-family: var(--mono); font-size: 13px; text-align: center; white-space: nowrap; }
+.arrow b { display: block; color: var(--ink); font-size: 15px; }
+.refline { color: var(--ink-2); font-size: 15px; }
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 18px 20px 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card.full { grid-column: 1 / -1; }
+.card h3 { font-stretch: 108%; font-weight: 700; font-size: 1.08rem; }
+.card .cap { color: var(--ink-2); font-size: 15px; }
+.card img { display: block; width: 100%; max-width: 640px; margin-inline: auto; height: auto; background: #fff; border-radius: 8px; }
+.key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13.5px; color: var(--ink-2); }
+.key span { display: inline-flex; gap: 6px; align-items: center; }
+.key i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.viz { font-size: 14px; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; gap: 2px; }
+.axis, .row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px; gap: 10px; align-items: center; }
+.axis .scale { position: relative; height: 18px; color: var(--ink-3); font-size: 12px; }
+.axis .scale span { position: absolute; transform: translateX(-50%); }
+.row { border-radius: 6px; padding-block: 3px; }
+.row:hover { background: var(--sunk); }
+.row .lab { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.em .lab { color: var(--ink); font-weight: 600; }
+.row .val { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.track { position: relative; height: 22px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: 25% 100%; border-right: 1px solid var(--line); }
+.track .ln { position: absolute; top: 50%; height: 2px; margin-top: -1px; background: var(--deemph); opacity: .5; }
+.track .dot { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); }
+.row:hover .track .dot { box-shadow: 0 0 0 2px var(--sunk); }
+.dot.a { background: var(--deemph); } .dot.b { background: var(--coarse); } .dot.c { background: var(--look); }
+.dot.ref { background: transparent; box-shadow: inset 0 0 0 2px var(--ink-3) !important; }
+
+/* cite */
+.bib { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.bib pre { margin: 0; padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--ink); }
+.bib button { position: absolute; top: 10px; right: 10px; font: 600 13px var(--body); border-radius: 7px; border: 1px solid var(--line); background: var(--sunk); color: var(--ink); padding: 5px 12px; cursor: pointer; }
+footer { color: var(--ink-3); font-size: 14px; border-top: 1px solid var(--line); padding-top: 18px; display: flex; flex-wrap: wrap; gap: 6px 24px; justify-content: space-between; }
+footer a { color: var(--ink-2); }
+
+@media (max-width: 860px) {
+  .sec > header { grid-template-columns: minmax(0, 1fr); }
+  .sec > header h2, .sec > header > p { grid-column: 1; }
+  .hero, .charts, .steps, .steps.two { grid-template-columns: minmax(0, 1fr); }
+  .facts { flex-direction: row; flex-wrap: wrap; }
+  .glance { grid-template-columns: minmax(0, 1fr); }
+  .glance div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); }
+  .why { grid-template-columns: minmax(0, 1fr); }
+  .why > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); }
+  .ladder { grid-template-columns: minmax(0, 1fr); }
+  .arrow { text-align: left; }
+  .arrow b { display: inline; margin-right: 8px; }
+  .cols { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  body { font-size: 16px; }
+  .axis, .row { grid-template-columns: 78px minmax(0, 1fr) 54px; gap: 8px; }
+  .row .lab { white-space: normal; line-height: 1.2; }
+  .bib pre { font-size: 12px; }
+  .stage { border-radius: 14px; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+<div class="page" id="top">
+
+<div class="top">
+  <span class="mark"><span class="w-a">A</span><span class="w-g">gentic</span><span class="w-r">Robo</span><span class="w-l">RL</span></span>
+  <nav aria-label="Sections">
+    <a href="#method">Method</a><a href="#harnesses">Harnesses</a><a href="#episodes">Episodes</a><a href="#results">Results</a><a href="#cite">Cite</a>
+  </nav>
+</div>
+
+<section class="hero">
+  <div class="hero-head">
+    <span class="eyebrow">Preprint · 2026</span>
+    <h1><span class="t1"><img class="logo" src="assets/logo_robot.png" alt="" width="490" height="312"><span><span class="w-a">A</span><span class="w-g">gentic</span><span class="w-r">Robo</span><span class="w-l">RL</span></span></span><span class="t2">Bringing Coding-Agent Post-Training to Agentic Robotics</span></h1>
+    <div class="authors">
+      <p class="names"><span>Xinxin Liu<sup>1</sup></span><span>Bingxin Xu<sup>2</sup></span><span>Wenrui Bao<sup>1</sup></span><span>Ming Li<sup>1</sup></span><span>Wentao Bao<sup>3</sup></span><span>Chen Chen<sup>1</sup></span><span>Yuzhang Shang<sup>1</sup></span></p>
+      <p class="affil"><span><sup>1</sup>University of Central Florida</span><span><sup>2</sup>University of Southern California</span><span><sup>3</sup>Michigan State University</span></p>
+      <p class="links"><span class="soon">Paper · coming soon</span><a href="https://github.com/L-CodingSpace/AgenticRoboRL" target="_blank" rel="noopener">Code · GitHub <span aria-hidden="true">↗</span></a></p>
+    </div>
+  </div>
+  <p class="lede"><b>AgenticRoboRL</b> is the first general post-training framework for agentic robotics systems.</p>
+  <ul class="facts"><li>No external memory</li><li>Multi-turn RL</li><li>One pipeline for ANY harness</li></ul>
+  <dl class="glance" aria-label="Headline results">
+    <div><dt><span class="from">18.1%</span><span class="arr"><span class="gain">+52.9</span><i class="shaft" aria-hidden="true"></i></span>71.0%</dt><dd><b>LIBERO-PRO</b><br>original 9B → post-trained 9B, no external memory</dd></div>
+    <div><dt><span class="from">19.2%</span><span class="arr"><span class="gain">+53.0</span><i class="shaft" aria-hidden="true"></i></span>72.2%</dt><dd><b>LIBERO-Plus</b><br>same two checkpoints, no extra training</dd></div>
+  </dl>
+  <figure class="figure">
+    <div class="plate"><img src="assets/teaser.png" alt="Overview of AgenticRoboRL: a planner and a robot harness interact with the environment over multiple turns, the planner is post-trained with SFT and multi-turn RL, and on LIBERO-PRO a 9B planner rises from 18.1% to 71.0%." loading="lazy"></div>
+    <figcaption><b>Overview of AgenticRoboRL.</b> (a) Agentic robotics systems combine planners with robot harnesses for multi-turn interaction with the environment. (b) We post-train planners through SFT on successful trajectories followed by multi-turn RL. (c) On LIBERO-PRO, post-training improves a 9B planner’s success rate from 18.1% to 71.0%, approaching the 72.1% achieved by Codex (GPT-5.5) with memory. Mem denotes external memory.</figcaption>
+  </figure>
+</section>
+
+<section class="sec" id="method">
+  <header>
+    <span class="eyebrow">Method</span>
+    <h2>Training pipeline</h2>
+  </header>
+  <figure class="figure">
+    <div class="plate"><img src="assets/framework.png" alt="AgenticRoboRL training pipeline: successful trajectories become SFT examples, the planner interacts with the environment through a harness while a proxy records its calls, and recorded calls are matched with episode outcomes for RL updates." loading="lazy"></div>
+    <figcaption><b>AgenticRoboRL training pipeline.</b> (a) Successful trajectories are converted into training examples for SFT. (b) The planner interacts with the environment through a robot harness, while a proxy records its model calls. (c) Recorded calls are matched with episode outcomes for RL updates, excluding episodes invalidated by infrastructure failures. Harness-specific adapters support a common training pipeline across different harnesses. Only the planner is trained; execution components remain fixed.</figcaption>
+  </figure>
+</section>
+
+<section class="sec" id="harnesses">
+  <header>
+    <span class="eyebrow">Harnesses</span>
+    <h2>Harnesses</h2>
+  </header>
+  <div class="steps two">
+    <div class="step">
+      <span class="chip nv">RPent · VLA skill invocation</span>
+      <h3>The planner calls skills</h3>
+      <p>Perception tools locate objects. A frozen VLA policy executes pick skills, and motion tools move the arm. Evaluated on LIBERO-PRO and LIBERO-Plus.</p>
+      <div class="tools"><code>segment</code><code>back_project</code><code>pi0_pick</code><code>move_to</code><code>release</code></div>
+    </div>
+    <div class="step">
+      <span class="chip nv">CaP-X · control-code generation</span>
+      <h3>The planner writes code</h3>
+      <p>The planner writes executable programs over perception and control APIs, and a motion controller runs them. Evaluated on the Object, Goal, and Spatial suites of LIBERO-PRO.</p>
+      <div class="tools"><code>python</code><code>perception API</code><code>control API</code></div>
+    </div>
+  </div>
+  <p class="sec-note">The training pipeline does not depend on how a harness executes the planner. Connecting a new harness only needs a new adapter. We show two harnesses that execute plans in different ways.</p>
+</section>
+
+<section class="sec" id="episodes">
+  <header>
+    <span class="eyebrow">Episodes</span>
+    <h2>Base vs. SFT vs. RL</h2>
+  </header>
+  <div class="stage" id="stage">
+    <div class="stage-head">
+      <span class="stage-title">Two LIBERO-PRO episodes, position swap</span>
+      <div class="controls"><button class="btn" id="speed" type="button">Speed 2×</button></div>
+    </div>
+    <div id="eps"></div>
+    <p class="stage-note">Evaluation recordings, 256 × 256. Tool counts are taken from the planner's recorded calls. Single episodes are examples. Outcomes of individual episodes vary between repeated evaluations, so the 800-episode results below are the measure.</p>
+  </div>
+</section>
+
+<section class="sec" id="results">
+  <div class="charts">
+    <div class="card full">
+      <h3>LIBERO-PRO by suite</h3>
+      <p class="cap">T is task perturbation, S is position swap. 100 episodes per suite.</p>
+      <div class="key"><span><i style="background:var(--deemph)"></i>Original 9B</span><span><i style="background:var(--coarse)"></i>+ SFT</span><span><i style="background:var(--look)"></i>+ SFT + RL</span><span>success rate, %</span></div>
+      <div class="viz" id="c-pro"></div>
+    </div>
+    <div class="card full">
+      <h3>LIBERO-Plus, no extra training</h3>
+      <p class="cap">10,030 episodes over seven perturbation types.</p>
+      <div class="key"><span><i style="background:var(--deemph)"></i>Original</span><span><i style="background:var(--coarse)"></i>+ SFT</span><span><i style="background:var(--look)"></i>+ SFT + RL</span></div>
+      <div class="viz" id="c-plus"></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="cite">
+  <header>
+    <span class="eyebrow">Cite</span>
+    <h2>BibTeX</h2>
+  </header>
+  <div class="bib">
+    <button id="bib-copy" type="button">Copy</button>
+<pre id="bib-text">@article{liu2026agenticroborl,
+  title   = {AgenticRoboRL: Bringing Coding-Agent
+             Post-Training to Agentic Robotics},
+  author  = {Liu, Xinxin and Xu, Bingxin and Bao, Wenrui and
+             Li, Ming and Bao, Wentao and Chen, Chen and
+             Shang, Yuzhang},
+  journal = {arXiv preprint},
+  year    = {2026}
+}</pre>
+  </div>
+</section>
+
+<footer><span>AgenticRoboRL · <a href="#top">Back to top</a></span></footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  /* Episodes: counts come from the recorded planner calls (transcripts) of each evaluation episode. */
+  var EPISODES = [
+    { id: "t6_s5", title: "Bowl next to the cookie box", instr: "pick the black bowl next to the cookie box and place it on the plate",
+      arms: [
+        { name: "Original 9B", ok: false, turns: 96, tools: { back_project: 12, segment: 7, pi0_pick: 14, move_to: 63 },
+          say: "“Cannot distinguish which of the two bowls is \"next to the cookies box\" from image alone …”", cls: "claim" },
+        { name: "+ SFT", ok: false, turns: 100, tools: { back_project: 42, segment: 12, pi0_pick: 8, move_to: 32 },
+          say: "Runs out of the 100-turn budget before the bowl is on the plate.", cls: "" },
+        { name: "+ SFT + RL", ok: true, turns: 42, tools: { back_project: 20, segment: 2, pi0_pick: 3, move_to: 9 },
+          say: "“left bowl … was only ~0.11m from the cookies box vs ~0.20m for the right distractor → left = target.”", cls: "good" }
+      ] },
+    { id: "t7_s6", title: "Bowl on the stove", instr: "pick the black bowl on the stove and place it on the plate",
+      arms: [
+        { name: "Original 9B", ok: false, turns: 18, tools: { back_project: 0, segment: 2, pi0_pick: 2, move_to: 9 },
+          say: "Reports “Task completed successfully”, but the task is not solved.", cls: "claim" },
+        { name: "+ SFT", ok: true, turns: 94, tools: { back_project: 46, segment: 8, pi0_pick: 4, move_to: 25 },
+          say: "“Three pi0_pick re-grasps were needed to re-center the bowl after earlier releases landed …”", cls: "" },
+        { name: "+ SFT + RL", ok: true, turns: 23, tools: { back_project: 10, segment: 4, pi0_pick: 1, move_to: 4 },
+          say: "“distinguished the target by its spatial relation \"on the stove\" (elevated z≈1.15 vs cabinet-top twin).”", cls: "good" }
+      ] }
+  ];
+  var ARMKEY = ["base", "sft", "rl"];
+  var TOOLMAX = 63;
+  var speed = 2;
+
+  function renderEpisode(ep, idx) {
+    var block = el("div", "ep-block");
+    var head = el("div", "ep-head");
+    var title = el("h3", "ep-title", (idx + 1) + ". " + ep.title);
+    var play = el("button", "btn primary", "Play all three"); play.type = "button";
+    head.append(title, play);
+    var instr = el("p", "instr"); instr.append("Instruction: ", el("q", null, ep.instr));
+    var cols = el("div", "cols");
+    ep.arms.forEach(function (a, k) {
+      var m = el("figure", "mon");
+      var mh = el("div", "mon-head");
+      mh.append(el("b", null, a.name), el("span", "res " + (a.ok ? "ok" : "bad"), (a.ok ? "success" : "failure") + " · " + a.turns + " turns"));
+      var v = document.createElement("video");
+      var base = "assets/ep_" + ep.id + "_" + ARMKEY[k];
+      v.src = base + ".mp4"; v.poster = base + ".jpg";
+      v.controls = true; v.muted = true; v.playsInline = true; v.preload = "metadata";
+      v.setAttribute("aria-label", a.name + " episode video");
+      v.addEventListener("loadedmetadata", function () { v.playbackRate = speed; });
+      m.append(mh, v);
+      if (a.tools) {
+        var mt = el("div", "meter");
+        Object.keys(a.tools).forEach(function (t) {
+          var bar = el("div", "bar"), fill = el("i", t === "back_project" ? "bp" : (t === "move_to" ? "mv" : ""));
+          fill.style.width = (100 * a.tools[t] / TOOLMAX) + "%";
+          bar.append(fill);
+          mt.append(el("span", null, t), bar, el("span", null, String(a.tools[t])));
+        });
+        m.append(mt);
+      } else {
+        m.append(el("div", "meter-none stage-note", "Video only for this run."));
+      }
+      m.append(el("p", "say " + a.cls, a.say));
+      cols.append(m);
+    });
+    play.addEventListener("click", function () {
+      cols.querySelectorAll("video").forEach(function (v) { v.currentTime = 0; v.playbackRate = speed; var p = v.play(); if (p && p.catch) p.catch(function () {}); });
+    });
+    block.append(head, instr, cols);
+    $("eps").append(block);
+  }
+  EPISODES.forEach(renderEpisode);
+  $("speed").addEventListener("click", function () {
+    speed = speed === 2 ? 1 : (speed === 1 ? 4 : 2);
+    $("speed").textContent = "Speed " + speed + "×";
+    document.querySelectorAll("#eps video").forEach(function (v) { v.playbackRate = speed; });
+  });
+
+  /* Dot charts: [label, original, sft, rl, reference?] */
+  function chart(id, rows, max, ref) {
+    var box = $(id); if (!box) return;
+    var ax = el("div", "axis"), sc = el("div", "scale");
+    ax.append(el("span"), sc, el("span"));
+    for (var t = 0; t <= max; t += max / 4) { var s = el("span", null, String(t)); s.style.left = (100 * t / max) + "%"; sc.append(s); }
+    box.append(ax);
+    rows.forEach(function (r) {
+      var row = el("div", "row" + (r[0] === "Overall" || r[0] === "Total" || r[0] === "Average" ? " em" : ""));
+      var tr = el("div", "track");
+      var lo = Math.min(r[1], r[2], r[3]), hi = Math.max(r[1], r[2], r[3]);
+      var ln = el("i", "ln"); ln.style.left = (100 * lo / max) + "%"; ln.style.width = (100 * (hi - lo) / max) + "%"; tr.append(ln);
+      if (ref && r[4] != null) { var d0 = el("i", "dot ref"); d0.style.left = (100 * r[4] / max) + "%"; tr.append(d0); }
+      ["a", "b", "c"].forEach(function (c, j) { var d = el("i", "dot " + c); d.style.left = (100 * r[j + 1] / max) + "%"; tr.append(d); });
+      row.title = r[0] + ": " + r[1] + " → " + r[2] + " → " + r[3] + (ref && r[4] != null ? " (teacher " + r[4] + ")" : "");
+      row.append(el("span", "lab", r[0]), tr, el("span", "val", r[3].toFixed(1)));
+      box.append(row);
+    });
+  }
+  chart("c-pro", [
+    ["Spatial-T", 22, 86, 96], ["Spatial-S", 17, 82, 86], ["Object-T", 19, 94, 96], ["Object-S", 15, 85, 95],
+    ["Goal-T", 24, 54, 54], ["Goal-S", 35, 62, 61], ["LIBERO-10-T", 9, 32, 41], ["LIBERO-10-S", 4, 26, 39],
+    ["Overall", 18.1, 65.1, 71.0]
+  ], 100);
+  chart("c-plus", [
+    ["Camera", 18.0, 59.2, 65.8], ["Robot", 20.5, 70.6, 75.2], ["Language", 19.4, 67.9, 73.9], ["Light", 21.0, 68.9, 75.9],
+    ["Background", 17.3, 66.8, 72.0], ["Noise", 17.2, 66.2, 73.0], ["Layout", 21.2, 68.4, 70.6], ["Total", 19.2, 66.7, 72.2]
+  ], 100);
+
+  /* nav highlight */
+  var links = Array.prototype.slice.call(document.querySelectorAll(".top nav a"));
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) links.forEach(function (a) { a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id); }); });
+    }, { rootMargin: "-40% 0px -55% 0px" });
+    document.querySelectorAll("section.sec").forEach(function (s) { io.observe(s); });
+  }
+
+  $("bib-copy").addEventListener("click", function () {
+    var t = $("bib-text").textContent;
+    try { navigator.clipboard.writeText(t).then(function () { $("bib-copy").textContent = "Copied"; setTimeout(function () { $("bib-copy").textContent = "Copy"; }, 1600); }); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>
