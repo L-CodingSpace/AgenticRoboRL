@@ -8,6 +8,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB.svg)](#-prerequisites)
+[![Hugging Face](https://img.shields.io/badge/Hugging_Face-Checkpoints-FFD21E?logo=huggingface&logoColor=white)](https://huggingface.co/ciciciciliu/AgenticRoboRL-Qwen3.5-9B)
 
 </div>
 
@@ -86,8 +87,8 @@ Both checkpoints are Qwen3.5-9B planners for the RPent harness, trained on LIBER
 
 | Checkpoint | Training | LIBERO-PRO | LIBERO-Plus | Download |
 |---|---|---|---|---|
-| SFT, step 563 | SFT on the teacher's trajectories | 65.1 | 66.7 | coming soon |
-| RL, round 6 (v006) | 6 RL rounds from the SFT checkpoint | 71.0 | 72.2 | coming soon |
+| SFT, step 563 | SFT on the teacher's trajectories | 65.1 | 66.7 | [`sft/`](https://huggingface.co/ciciciciliu/AgenticRoboRL-Qwen3.5-9B/tree/main/sft) |
+| RL, round 6 (v006) | 6 RL rounds from the SFT checkpoint | 71.0 | 72.2 | [`rl-v006/`](https://huggingface.co/ciciciciliu/AgenticRoboRL-Qwen3.5-9B/tree/main/rl-v006) |
 
 ## 📁 Repository Layout
 
