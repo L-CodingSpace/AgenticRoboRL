@@ -6,6 +6,7 @@
 
 <h3>Bringing Coding-Agent Post-Training to Agentic Robotics</h3>
 
+[![arXiv](https://img.shields.io/badge/arXiv-2610.28589-b31b1b.svg)](https://arxiv.org/abs/2610.28589)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB.svg)](#-prerequisites)
 [![Hugging Face](https://img.shields.io/badge/Hugging_Face-Checkpoints-FFD21E?logo=huggingface&logoColor=white)](https://huggingface.co/ciciciciliu/AgenticRoboRL-Qwen3.5-9B)
@@ -25,6 +26,7 @@
 - [🔁 Reinforcement Learning](#-reinforcement-learning)
 - [🎯 Evaluation](#-evaluation)
 - [🙌 Acknowledgements](#-acknowledgements)
+- [📝 Citation](#-citation)
 - [📜 License](#-license)
 
 ## 📖 Introduction
@@ -274,6 +276,19 @@ their code and models, and ask you to cite their papers if you use the correspon
 - Benchmarks: LIBERO, LIBERO-PRO and LIBERO-Plus
 - Models: pi0.5 (openpi), SAM 3 and the Qwen models
 - Serving and training: vLLM and flash-linear-attention
+
+## 📝 Citation
+
+If you find AgenticRoboRL useful, please cite our [paper](https://arxiv.org/abs/2610.28589):
+
+```bibtex
+@article{liu2026agenticroborl,
+  title   = {AgenticRoboRL: Bringing Coding-Agent Post-Training to Agentic Robotics},
+  author  = {Liu, Xinxin and Xu, Bingxin and Bao, Wenrui and Li, Ming and Bao, Wentao and Chen, Chen and Shang, Yuzhang},
+  journal = {arXiv preprint arXiv:2610.28589},
+  year    = {2026}
+}
+```
 
 ## 📜 License
 
