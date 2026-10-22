@@ -114,6 +114,8 @@ code, .mono { font-family: var(--mono); font-size: 0.82em; }
 .authors { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .authors p { display: flex; flex-wrap: wrap; }
 .names { gap: 4px 26px; font-family: var(--display); font-weight: 600; font-size: clamp(1rem, 1.7vw, 1.15rem); color: var(--ink); }
+.names a { color: inherit; text-decoration: none; }
+.names a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .affil { gap: 2px 22px; font-size: 14.5px; color: var(--ink-2); }
 .authors sup { font-size: 0.68em; line-height: 0; margin-inline: 1px; color: var(--ink-3); }
 .links { gap: 10px; margin-top: 8px; }
@@ -279,9 +281,9 @@ footer a { color: var(--ink-2); }
     <span class="eyebrow">Preprint · 2026</span>
     <h1><span class="t1"><img class="logo" src="assets/logo_robot.png" alt="" width="490" height="312"><span><span class="w-a">A</span><span class="w-g">gentic</span><span class="w-r">Robo</span><span class="w-l">RL</span></span></span><span class="t2">Bringing Coding-Agent Post-Training to Agentic Robotics</span></h1>
     <div class="authors">
-      <p class="names"><span>Xinxin Liu<sup>1</sup></span><span>Bingxin Xu<sup>2</sup></span><span>Wenrui Bao<sup>1</sup></span><span>Ming Li<sup>1</sup></span><span>Wentao Bao<sup>3</sup></span><span>Chen Chen<sup>1</sup></span><span>Yuzhang Shang<sup>1</sup></span></p>
+      <p class="names"><span><a href="https://xinxinliu-ai.github.io/" target="_blank" rel="noopener">Xinxin Liu</a><sup>1</sup></span><span><a href="https://bingxin-xu.github.io/" target="_blank" rel="noopener">Bingxin Xu</a><sup>2</sup></span><span><a href="https://scholar.google.com/citations?user=uINrqXAAAAAJ" target="_blank" rel="noopener">Wenrui Bao</a><sup>1</sup></span><span><a href="https://liming-ai.github.io/" target="_blank" rel="noopener">Ming Li</a><sup>1</sup></span><span><a href="https://cogito2012.github.io/homepage/" target="_blank" rel="noopener">Wentao Bao</a><sup>3</sup></span><span><a href="https://www.crcv.ucf.edu/chenchen/" target="_blank" rel="noopener">Chen Chen</a><sup>1</sup></span><span><a href="https://42shawn.github.io/" target="_blank" rel="noopener">Yuzhang Shang</a><sup>1</sup></span></p>
       <p class="affil"><span><sup>1</sup>University of Central Florida</span><span><sup>2</sup>University of Southern California</span><span><sup>3</sup>Michigan State University</span></p>
-      <p class="links"><a href="https://arxiv.org/abs/2610.28589" target="_blank" rel="noopener">Paper · arXiv 2610.28589 <span aria-hidden="true">↗</span></a><a href="https://github.com/xinxinliu-ai/AgenticRoboRL" target="_blank" rel="noopener">Code · GitHub <span aria-hidden="true">↗</span></a></p>
+      <p class="links"><a href="https://arxiv.org/abs/2610.28589" target="_blank" rel="noopener">Paper · arXiv 2610.28589 <span aria-hidden="true">↗</span></a><a href="https://github.com/xinxinliu-ai/AgenticRoboRL" target="_blank" rel="noopener">Code · GitHub <span aria-hidden="true">↗</span></a><a href="https://huggingface.co/ciciciciliu/AgenticRoboRL-Qwen3.5-9B" target="_blank" rel="noopener">Model · Hugging Face <span aria-hidden="true">↗</span></a></p>
     </div>
   </div>
   <p class="lede"><b>AgenticRoboRL</b> is the first general post-training framework for agentic robotics systems.</p>
